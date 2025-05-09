@@ -1,9 +1,12 @@
 import { Controls } from 'av-controls'
 
-import TapPattern from './tap-pattern'
-import { Clock } from './clock'
+import TapPattern from '../tap-pattern'
+import { Clock } from '../clock'
 
-import { solve } from './linear-solver'
+import { solve } from '../linear-solver'
+import { Envelope, LinearDecay } from '../envelopes/index'
+
+export { DebouncedFader } from './debounced-fader'
 
 export class SmoothModKnob {
   private knob: Controls.Knob.Receiver
@@ -112,8 +115,8 @@ export function makePatternPadPair(
   color: string,
   clock: Clock, 
   onDown = (_velocity: number) => {},
-  beatsPerCycle = 8,
-  onUp = () => {}
+  onUp = () => {}, 
+  beatsPerCycle = 8
 ) {
   const pattern = new TapPattern(
     clock, 
@@ -144,6 +147,45 @@ export function makePatternPadPair(
       }, () => {
         onUp()
       })
+  }
+}
+
+export class TapPatternPairWithAmountFaderAndEnvelope {
+  private controls: { [key: string]: Controls.Base.Receiver }
+  private amountFader: Controls.Fader.Receiver
+  private envelope: Envelope 
+
+  constructor(
+    name: string,
+    x: number, y: number,
+    width: number, height: number,
+    clock: Clock,
+    color: string,
+    envelope: Envelope | undefined, 
+    beatsPerCycle = 8,
+  ) {
+    const buttonsHeight = 30 / 50 * height
+    this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
+      new Controls.Base.Args(name + ' amount', x, buttonsHeight, width, height - buttonsHeight, color),
+      0.5, 0, 1, 2
+    ))
+    this.controls = {
+      ...makePatternPadPair(name, x, y, width, buttonsHeight, color, clock, (v: number) => {
+        this.envelope.trigger(v * this.amountFader.value)
+      }, () => {
+        this.envelope.release()
+      }, beatsPerCycle),
+      [name + ' amount']: this.amountFader
+    }
+    this.envelope = envelope || new LinearDecay(1, clock)
+  }
+
+  getControls() {
+    return this.controls
+  }
+
+  getValue() {
+    return this.envelope.getValue() 
   }
 }
 
@@ -205,7 +247,26 @@ export class RGBFaders extends VectorFaders {
   ) {
     super(name, rgbPostfixes, x, y, width, height, initialValues, min, max, rgbColors)
   }
+}
 
+const rgbaPostfixes = [' r', ' g', ' b', ' a']
+const rgbaColors = ['#a44', '#4a4', '#44a', '#666']
+export class RGBAFader extends VectorFaders {
+  constructor(
+    name: string,
+    x: number, y: number,
+    width: number, height: number,
+    initialValues: [number, number, number, number], 
+    min = 0, max = 1
+  ) {
+    super(name, rgbaPostfixes, x, y, width, height, initialValues, min, max, rgbaColors)
+  }
+  getRgb() {
+    return this.getValues().slice(0, 3)
+  }
+  getAlpha() {
+    return this.getValues()[3]
+  }
 }
 
 const vec3Postfixes = [' x', ' y', ' z']
