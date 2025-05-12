@@ -150,6 +150,44 @@ export function makePatternPadPair(
   }
 }
 
+export class TapPatternPairWithAmountFader {
+  private controls: { [key: string]: Controls.Base.Receiver }
+  private amountFader: Controls.Fader.Receiver
+
+  constructor(
+    name: string,
+    x: number, y: number,
+    width: number, height: number,
+    color: string,
+    clock: Clock,
+    onDown = (_velocity: number) => {},
+    onUp = () => {}, 
+    beatsPerCycle = 8
+  ) {
+    const buttonsHeight = 30 / 50 * height
+    this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
+      new Controls.Base.Args(name + ' amount', x, y + buttonsHeight, width, height - buttonsHeight, color),
+      0.5, 0, 1, 2
+    ))
+    this.controls = {
+      ...makePatternPadPair(name, x, y, width, buttonsHeight, color, clock, (v: number) => {
+        onDown(v * this.amountFader.value)
+      }, () => {
+        onUp()
+      }, beatsPerCycle),
+      [name + ' amount']: this.amountFader
+    }
+  }
+
+  getControls() {
+    return this.controls
+  }
+
+  getAmount() {
+    return this.amountFader.value
+  }
+}
+
 export class TapPatternPairWithAmountFaderAndEnvelope {
   private controls: { [key: string]: Controls.Base.Receiver }
   private amountFader: Controls.Fader.Receiver
@@ -159,14 +197,14 @@ export class TapPatternPairWithAmountFaderAndEnvelope {
     name: string,
     x: number, y: number,
     width: number, height: number,
-    clock: Clock,
     color: string,
+    clock: Clock,
     envelope: Envelope | undefined, 
     beatsPerCycle = 8,
   ) {
     const buttonsHeight = 30 / 50 * height
     this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
-      new Controls.Base.Args(name + ' amount', x, buttonsHeight, width, height - buttonsHeight, color),
+      new Controls.Base.Args(name + ' amount', x, y + buttonsHeight, width, height - buttonsHeight, color),
       0.5, 0, 1, 2
     ))
     this.controls = {
