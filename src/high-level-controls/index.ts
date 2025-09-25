@@ -289,7 +289,7 @@ export class RGBFaders extends VectorFaders {
 
 const rgbaPostfixes = [' r', ' g', ' b', ' a']
 const rgbaColors = ['#a44', '#4a4', '#44a', '#666']
-export class RGBAFader extends VectorFaders {
+export class RGBAFaders extends VectorFaders {
   constructor(
     name: string,
     x: number, y: number,
@@ -297,7 +297,7 @@ export class RGBAFader extends VectorFaders {
     initialValues: [number, number, number, number], 
     min = 0, max = 1
   ) {
-    super(name, rgbaPostfixes, x, y, width, height, initialValues, min, max, rgbaColors)
+    super(name, rgbaPostfixes, x, y, width / 4 * 3, height, initialValues, min, max, rgbaColors)
   }
   getRgb() {
     return this.getValues().slice(0, 3)

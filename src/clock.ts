@@ -204,7 +204,7 @@ export class Clock {
     return this.bar / 4
   }
 
-  getSustain(exponent: number = 0.1) {
+  getSustain(exponent: number = 0.3) {
     return Math.pow(exponent, this.tickDeltaS)
   }
 
