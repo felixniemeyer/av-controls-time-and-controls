@@ -6,7 +6,7 @@ import { Clock } from '../clock'
 import { solve } from '../linear-solver'
 import { Envelope, LinearDecay } from '../envelopes/index'
 
-export { DebouncedFader } from './debounced-fader'
+export * from './lfo'
 
 export class SmoothModKnob {
   private knob: Controls.Knob.Receiver
@@ -147,6 +147,27 @@ export function makePatternPadPair(
       }, () => {
         onUp()
       })
+  }
+}
+
+export class TapPatternPair {
+  private controls: { [key: string]: Controls.Base.Receiver }
+
+  constructor(
+    name: string,
+    x: number, y: number,
+    width: number, height: number,
+    color: string,
+    clock: Clock,
+    onDown = (_velocity: number) => {},
+    onUp = () => {}, 
+    beatsPerCycle = 8
+  ) {
+    this.controls = makePatternPadPair(name, x, y, width, height, color, clock, onDown, onUp, beatsPerCycle)
+  }
+
+  getControls() {
+    return this.controls
   }
 }
 

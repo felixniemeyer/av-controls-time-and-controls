@@ -1,6 +1,6 @@
 {
   "name": "time-n-controls",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "a clock and some high level controls for av-controls and visual artworks",
   "main": "src/lib.ts",
   "scripts": {
