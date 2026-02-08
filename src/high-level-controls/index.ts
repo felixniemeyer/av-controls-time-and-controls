@@ -7,6 +7,7 @@ import { solve } from '../linear-solver'
 import { Envelope, LinearDecay } from '../envelopes/index'
 
 export * from './lfo'
+export * from './debounced-fader'
 
 export class SmoothModKnob {
   private knob: Controls.Knob.Receiver
@@ -37,7 +38,7 @@ export class SmoothModKnob {
     // determine direction
     if(d > this.halfSpan) {
       d = d - this.span
-    } 
+    }
 
     this.value = this.value + d * (1 - sustain)
 
@@ -54,6 +55,14 @@ export class SmoothModKnob {
 
   getValue() {
     return this.value
+  }
+
+  getTargetValue() {
+    return this.knob.value
+  }
+
+  getValueOrTarget(smooth: boolean) {
+    return smooth ? this.value : this.knob.value
   }
 }
 
@@ -78,6 +87,14 @@ export class SmoothFader {
 
   getValue() {
     return this.value
+  }
+
+  getTargetValue() {
+    return this.fader.value
+  }
+
+  getValueOrTarget(smooth: boolean) {
+    return smooth ? this.value : this.fader.value
   }
 }
 
@@ -105,6 +122,14 @@ export class SuperSmoothFader {
 
   getValue() {
     return this.value
+  }
+
+  getTargetValue() {
+    return this.fader.value
+  }
+
+  getValueOrTarget(smooth: boolean) {
+    return smooth ? this.value : this.fader.value
   }
 }
 
@@ -285,6 +310,14 @@ export class VectorFaders {
     return this.components.map((component) => component.getValue())
   }
 
+  getTargetValues() {
+    return this.components.map((component) => component.getTargetValue())
+  }
+
+  getValuesOrTargets(smooth: boolean) {
+    return this.components.map((component) => component.getValueOrTarget(smooth))
+  }
+
   getControls() {
     const result = {} as any
     this.componentNames.forEach((componentName: string, i: number) => {
@@ -379,12 +412,20 @@ export class CubicCurve {
 
   update(sustain: number) {
     this.coefficients = this.coefficients.map((coefficient, i) => {
-      return coefficient * sustain + this.targetCoefficients[i] * (1 - sustain)
+      return coefficient * sustain + this.targetCoefficients[i]! * (1 - sustain)
     })
   }
 
   getCoefficients() {
     return this.coefficients
+  }
+
+  getTargetCoefficients() {
+    return this.targetCoefficients
+  }
+
+  getCoefficientsOrTargets(smooth: boolean) {
+    return smooth ? this.coefficients : this.targetCoefficients
   }
 
   getControl() {
@@ -418,7 +459,7 @@ export class RGBCurves {
   }
 
   getControls() {
-    const result = {} as any 
+    const result = {} as any
     this.curves.forEach((curve, i) => {
       result[this.mkId(i, 'color curve')] = curve.getControl()
     })
@@ -428,5 +469,12 @@ export class RGBCurves {
   getFloatValues() {
     return this.curves.map((curve) => curve.getCoefficients()).flat()
   }
-}
 
+  getTargetFloatValues() {
+    return this.curves.map((curve) => curve.getTargetCoefficients()).flat()
+  }
+
+  getFloatValuesOrTargets(smooth: boolean) {
+    return this.curves.map((curve) => curve.getCoefficientsOrTargets(smooth)).flat()
+  }
+}
