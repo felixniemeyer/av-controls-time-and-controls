@@ -2,6 +2,8 @@ import { Controls } from 'av-controls'
 
 import TapPattern from '../tap-pattern'
 import { Clock } from '../clock'
+import { PhaseClock } from '../phase-clock'
+import { PhaseTapPattern } from '../phase-tap-pattern'
 
 import { solve } from '../linear-solver'
 import { Envelope, LinearDecay } from '../envelopes/index'
@@ -21,7 +23,7 @@ export class SmoothModKnob {
     this.knob = new Controls.Knob.Receiver(
       knobSpec
     )
-    this.value = knobSpec.initialValue
+    this.value = knobSpec.initialState.value
     this.span = knobSpec.max - knobSpec.min
     this.halfSpan = this.span / 2
     this.min = knobSpec.min
@@ -71,7 +73,7 @@ export class SmoothFader {
   private fader: Controls.Fader.Receiver
 
   constructor(faderSpec: Controls.Fader.Spec) {
-    this.value = faderSpec.initialValue
+    this.value = faderSpec.initialState.value
     this.fader = new Controls.Fader.Receiver(
       faderSpec
     )
@@ -104,8 +106,8 @@ export class SuperSmoothFader {
   private fader: Controls.Fader.Receiver
 
   constructor(faderSpec: Controls.Fader.Spec) {
-    this.value = faderSpec.initialValue
-    this.targetValue = faderSpec.initialValue
+    this.value = faderSpec.initialState.value
+    this.targetValue = faderSpec.initialState.value
     this.fader = new Controls.Fader.Receiver(
       faderSpec
     )
@@ -175,6 +177,46 @@ export function makePatternPadPair(
   }
 }
 
+export function makePhasePatternPadPair(
+  name: string,
+  x: number, y: number,
+  width: number, height: number,
+  color: string,
+  phaseClock: PhaseClock,
+  onDown = (_velocity: number) => {},
+  onUp = () => {}
+) {
+  const pattern = new PhaseTapPattern(
+    phaseClock,
+    (velo) => {
+      onDown(velo)
+    },
+    () => {
+      onUp()
+    }
+  )
+
+  const halfHeight = height / 2
+
+  return {
+    [name + ' rec']: new Controls.Pad.Receiver(new Controls.Pad.Spec(
+      new Controls.Base.Args(name + ' rec', x, y, width, halfHeight, color)
+    ), (velo: number) => {
+      pattern.tap(velo)
+    }, () => {
+      pattern.release()
+    }),
+    [name + ' manual']: new Controls.Pad.Receiver(new Controls.Pad.Spec(
+      new Controls.Base.Args(name + ' manual', x, y + halfHeight, width, halfHeight, color)
+    ), (velo: number) => {
+      pattern.stop()
+      onDown(velo)
+    }, () => {
+      onUp()
+    })
+  }
+}
+
 export class TapPatternPair {
   private controls: { [key: string]: Controls.Base.Receiver }
 
@@ -213,7 +255,7 @@ export class TapPatternPairWithAmountFader {
     const buttonsHeight = 30 / 50 * height
     this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
       new Controls.Base.Args(name + ' amount', x, y + buttonsHeight, width, height - buttonsHeight, color),
-      0.5, 0, 1, 2
+      new Controls.Fader.State(0.5), 0, 1, 2
     ))
     this.controls = {
       ...makePatternPadPair(name, x, y, width, buttonsHeight, color, clock, (v: number) => {
@@ -237,7 +279,7 @@ export class TapPatternPairWithAmountFader {
 export class TapPatternPairWithAmountFaderAndEnvelope {
   private controls: { [key: string]: Controls.Base.Receiver }
   private amountFader: Controls.Fader.Receiver
-  private envelope: Envelope 
+  private envelope: Envelope
 
   constructor(
     name: string,
@@ -245,13 +287,13 @@ export class TapPatternPairWithAmountFaderAndEnvelope {
     width: number, height: number,
     color: string,
     clock: Clock,
-    envelope: Envelope | undefined, 
+    envelope: Envelope | undefined,
     beatsPerCycle = 8,
   ) {
     const buttonsHeight = 30 / 50 * height
     this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
       new Controls.Base.Args(name + ' amount', x, y + buttonsHeight, width, height - buttonsHeight, color),
-      0.5, 0, 1, 2
+      new Controls.Fader.State(0.5), 0, 1, 2
     ))
     this.controls = {
       ...makePatternPadPair(name, x, y, width, buttonsHeight, color, clock, (v: number) => {
@@ -290,10 +332,10 @@ export class VectorFaders {
     componentNames.forEach((componentName, i) => {
       this.components.push(new SmoothFader(
         new Controls.Fader.Spec(
-          new Controls.Base.Args(name + ' ' + componentName, x + thirdWidth * i, y, thirdWidth, height, colors[i]), 
-          initialValues[i], 
-          min, 
-          max, 
+          new Controls.Base.Args(name + ' ' + componentName, x + thirdWidth * i, y, thirdWidth, height, colors[i]),
+          new Controls.Fader.State(initialValues[i]!),
+          min,
+          max,
           2
         )
       ))
@@ -403,7 +445,7 @@ export class CubicCurve {
       ]
     }
     this.dots = new Controls.Dots.Receiver(
-      new Controls.Dots.Spec(baseArgs, initialValues), 
+      new Controls.Dots.Spec(baseArgs, new Controls.Dots.State(initialValues)),
       (dots: Controls.Dots.Dot[]) => {
         this.targetCoefficients = pointsToColorCurve(dots)
       }

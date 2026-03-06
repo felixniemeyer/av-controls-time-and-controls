@@ -5,12 +5,12 @@ export class BPMBasics {
   private barCake = new Controls.Cake.Receiver(new Controls.Cake.Spec(
     new Controls.Base.Args(
     'bar', 0, 0, 50, 20, '#f0f'
-    ), 0, 1, 0, 2
+    ), 0, 1, new Controls.Cake.State(0), 2
   ))
   private stropheCake = new Controls.Cake.Receiver(new Controls.Cake.Spec(
     new Controls.Base.Args(
     '4bars', 50, 0, 50, 20, '#f0f'
-    ), 0, 1, 0, 2
+    ), 0, 1, new Controls.Cake.State(0), 2
   ))
 
   private controlsGroup: Controls.Group.Receiver

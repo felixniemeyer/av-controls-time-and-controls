@@ -17,7 +17,7 @@ export class LFOControl {
   private controls: { [key: string]: Controls.Base.Receiver }
 
   constructor(
-    private name: string,
+    name: string,
     private clock: Clock,
     x: number, y: number,
     width: number, height: number,
@@ -36,7 +36,7 @@ export class LFOControl {
     this.valueFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args(name, x, faderY, width, faderHeight, color),
-        initialValue, min, max, 2 // Pass min/max to fader
+        new Controls.Fader.State(initialValue), min, max, 2 // Pass min/max to fader
       )
     )
 
@@ -60,13 +60,13 @@ export class LFOControl {
     this.rangeFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('range', mX, mY, colW, splitH, '#f84'),
-        0, 0, 1, 2 // Initial value changed from 0.5 to 0
+        new Controls.Fader.State(0), 0, 1, 2 // Initial value changed from 0.5 to 0
       )
     )
     this.modeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
         new Controls.Base.Args(name + ' mode', mX, mY + splitH, colW, splitH, '#f84'),
-        ['above', 'around', 'below'], 1 // 'around' is index 1
+        ['above', 'around', 'below'], new Controls.Selector.State(1) // 'around' is index 1
       )
     )
 
@@ -74,13 +74,13 @@ export class LFOControl {
     this.multiplierFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('nominator', mX + colW, mY, colW, splitH, '#48f'),
-        1, 1, 16, 0 // Integer 1-16
+        new Controls.Fader.State(1), 1, 16, 0 // Integer 1-16
       )
     )
     this.rateModeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
         new Controls.Base.Args(name + ' rate', mX + colW, mY + splitH, colW, splitH, '#48f'),
-        ['beat', 'time'], 0 // 'beat' is index 0
+        ['beat', 'time'], new Controls.Selector.State(0) // 'beat' is index 0
       )
     )
 
@@ -88,7 +88,7 @@ export class LFOControl {
     this.divisorFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('divisor', mX + colW * 2, mY, colW, otherControlsHeight, '#84f'),
-        4, 1, 32, 0 // Integer 1-32
+        new Controls.Fader.State(4), 1, 32, 0 // Integer 1-32
       )
     )
 
@@ -96,7 +96,7 @@ export class LFOControl {
     this.timeFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('period', mX + colW * 3, mY, colW, otherControlsHeight, '#8f4'),
-        2, 0, 60, 2
+        new Controls.Fader.State(2), 0, 60, 2
       )
     )
 
@@ -104,7 +104,7 @@ export class LFOControl {
     this.shapeFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args(name + ' shape', mX, shapeFaderY, colW * 4, shapeFaderHeight, '#999'),
-        0, -1, 1, 2, // -1=triangle, 0=sine, 1=square
+        new Controls.Fader.State(0), -1, 1, 2, // -1=triangle, 0=sine, 1=square
         true // isHorizontal
       )
     )
@@ -143,7 +143,7 @@ export class LFOControl {
   }
 
   private getTriangleWave(phase: number): number {
-    const p = phase % 1; // Ensure phase is 0-1
+    phase = phase % 1 // Ensure phase is 0-1
     const tri = phase < 0.5 ? phase * 2 : 2 - phase * 2; // 0 to 1 to 0
     return 0.5 + 0.5 * (tri * 2 - 1); // maps 0->1->0 to -1->1->-1, then 0->1
   }
