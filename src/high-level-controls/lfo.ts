@@ -1,5 +1,5 @@
 import { Controls } from 'av-controls'
-import { Clock } from '../clock'
+import { PhaseClock } from '../phase-clock'
 
 export class LFOControl {
   private valueFader: Controls.Fader.Receiver
@@ -18,7 +18,7 @@ export class LFOControl {
 
   constructor(
     name: string,
-    private clock: Clock,
+    private clock: PhaseClock,
     x: number, y: number,
     width: number, height: number,
     initialValue = 0.5,
@@ -80,7 +80,7 @@ export class LFOControl {
     this.rateModeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
         new Controls.Base.Args(name + ' rate', mX + colW, mY + splitH, colW, splitH, '#48f'),
-        ['beat', 'time'], new Controls.Selector.State(0) // 'beat' is index 0
+        ['phase', 'time'], new Controls.Selector.State(0) // 'phase' is index 0
       )
     )
 
@@ -88,7 +88,7 @@ export class LFOControl {
     this.divisorFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('divisor', mX + colW * 2, mY, colW, otherControlsHeight, '#84f'),
-        new Controls.Fader.State(4), 1, 32, 0 // Integer 1-32
+        new Controls.Fader.State(4), 1, 4, 0 // Integer 1-4, shortest cycle is 1/4 phase
       )
     )
 
@@ -168,14 +168,12 @@ export class LFOControl {
       const period = Math.max(0.01, this.timeFader.value)
       phase = (this.clock.getSeconds() % period) / period
     } else {
-      // beat mode (Bars based)
+      // phase mode (phase cycles based)
       const mult = Math.max(1, Math.round(this.multiplierFader.value))
       const div = Math.max(1, Math.round(this.divisorFader.value))
-      
-      // Fraction of a Bar.
-      // e.g. mult=1, div=4 -> 1/4 Bar -> 1 Beat.
-      const barsPerCycle = mult / div
-      phase = (this.clock.getBar() % barsPerCycle) / barsPerCycle
+
+      const phasesPerCycle = mult / div
+      phase = (this.clock.getUnwrappedPhase() % phasesPerCycle) / phasesPerCycle
     }
 
     // Determine waveform based on shapeFader value (-1 to 1)
@@ -221,5 +219,84 @@ export class LFOControl {
     }
 
     return minVal + osc * (maxVal - minVal)
+  }
+}
+
+export class VectorLFOs {
+  private components: LFOControl[] = []
+
+  constructor(
+    private componentNames: string[],
+    name: string,
+    phaseClock: PhaseClock,
+    x: number, y: number,
+    width: number, height: number,
+    initialValues: number[],
+    min = 0, max = 1,
+    colors = ['#999', '#999', '#999']
+  ) {
+    const componentWidth = width / componentNames.length
+
+    componentNames.forEach((componentName, i) => {
+      this.components.push(new LFOControl(
+        name + ' ' + componentName,
+        phaseClock,
+        x + componentWidth * i,
+        y,
+        componentWidth,
+        height,
+        initialValues[i]!,
+        min,
+        max,
+        colors[i]
+      ))
+    })
+  }
+
+  getValues() {
+    return this.components.map((component) => component.getValue())
+  }
+
+  getValuesOrTargets(_smooth: boolean) {
+    return this.getValues()
+  }
+
+  getControls() {
+    const result = {} as Record<string, Controls.Base.Receiver>
+    this.componentNames.forEach((_componentName: string, i: number) => {
+      const controls = this.components[i]!.getControls()
+      Object.assign(result, controls)
+    })
+    return result
+  }
+}
+
+const rgbPostfixes = ['r', 'g', 'b']
+const rgbColors = ['#a44', '#4a4', '#44a']
+export class RGBLFOs extends VectorLFOs {
+  constructor(
+    name: string,
+    phaseClock: PhaseClock,
+    x: number, y: number,
+    width: number, height: number,
+    initialValues: [number, number, number],
+    min = 0, max = 1
+  ) {
+    super(rgbPostfixes, name, phaseClock, x, y, width, height, initialValues, min, max, rgbColors)
+  }
+}
+
+const rgbaPostfixes = ['r', 'g', 'b', 'a']
+const rgbaColors = ['#a44', '#4a4', '#44a', '#666']
+export class RGBALFOs extends VectorLFOs {
+  constructor(
+    name: string,
+    phaseClock: PhaseClock,
+    x: number, y: number,
+    width: number, height: number,
+    initialValues: [number, number, number, number],
+    min = 0, max = 1
+  ) {
+    super(rgbaPostfixes, name, phaseClock, x, y, width, height, initialValues, min, max, rgbaColors)
   }
 }
