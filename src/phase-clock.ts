@@ -18,6 +18,12 @@ export interface PhaseClock {
   getUnwrappedPhase(): number
 
   /**
+   * Get the current unwrapped phase with short-horizon phase-rate anticipation.
+   * Use this for input-event sampling between ticks.
+   */
+  getPredictedUnwrappedPhase(): number
+
+  /**
    * Get the current phase rate in cycles per second.
    */
   getPhaseRate(): number
@@ -64,7 +70,12 @@ export abstract class BasePhaseClockImpl implements PhaseClock {
 
   abstract getPhase(): number
   abstract getUnwrappedPhase(): number
+  abstract getPredictedUnwrappedPhase(): number
   abstract getPhaseRate(): number
+
+  protected getElapsedSinceLastTickS(): number {
+    return Math.max(0, (Date.now() - this.lastTickTime) / 1000)
+  }
 
   getSeconds(): number {
     return this.seconds

@@ -375,6 +375,11 @@ export class AutoPhase implements PhaseClock {
     return this.phaseClock.getUnwrappedPhase() + offsetCycles
   }
 
+  getPredictedUnwrappedPhase(): number {
+    const offsetCycles = (this.phaseOffsetMs / 1000) * this.phaseClock.getPhaseRate()
+    return this.phaseClock.getPredictedUnwrappedPhase() + offsetCycles
+  }
+
   getPhaseRate(): number {
     return this.phaseClock.getPhaseRate()
   }

@@ -184,7 +184,8 @@ export function makePhasePatternPadPair(
   color: string,
   phaseClock: PhaseClock,
   onDown = (_velocity: number) => {},
-  onUp = () => {}
+  onUp = () => {},
+  phasesPerCycle = 1
 ) {
   const pattern = new PhaseTapPattern(
     phaseClock,
@@ -193,7 +194,8 @@ export function makePhasePatternPadPair(
     },
     () => {
       onUp()
-    }
+    },
+    phasesPerCycle
   )
 
   const halfHeight = height / 2

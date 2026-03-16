@@ -25,6 +25,7 @@ export class PhaseTapPattern {
     private clock: PhaseClock,
     public onOn: (velocity: number) => void = () => {},
     public onOff: () => void = () => {},
+    private phasesPerCycle = 1,
     lookAheadMs = 70,
     private latencyCompensateMs = 1000 / 60
   ) {
@@ -36,15 +37,15 @@ export class PhaseTapPattern {
    * Record a tap (note-on) at the current phase.
    */
   tap(velocity = 1) {
-    const currentPhase = this.clock.getUnwrappedPhase()
+    const currentPhase = this.clock.getPredictedUnwrappedPhase()
     let phaseInCycle = currentPhase - this.recordStartPhase
     let startedNewCycle = false
 
-    if (phaseInCycle >= 1 || this.recordStartPhase < 0) {
+    if (phaseInCycle >= this.phasesPerCycle || this.recordStartPhase < 0) {
       // Start new recording cycle
       startedNewCycle = true
-      this.recordStartPhase = Math.floor(currentPhase)
-      phaseInCycle = currentPhase - this.recordStartPhase
+      this.recordStartPhase = currentPhase
+      phaseInCycle = 0
       this.queue.cancelAll()
       this.preventAll = true
       this.tapId = 0
@@ -52,17 +53,17 @@ export class PhaseTapPattern {
 
       // Compensate for latency
       const latencyPhase = (this.latencyCompensateMs / 1000) * this.clock.getPhaseRate()
-      this.cycleStartPhase = Math.floor(currentPhase) + 1 - latencyPhase
+      this.cycleStartPhase = currentPhase + this.phasesPerCycle - latencyPhase
     }
 
     // Record the tap
     this.pattern.push({
       onPhase: phaseInCycle,
       velocity,
-      durationPhase: 1 - phaseInCycle // Default duration if release not called
+      durationPhase: this.phasesPerCycle - phaseInCycle // Default duration if release not called
     })
 
-    // Schedule first playback at the recorded phase position (not always phase 0).
+    // Schedule first playback one full recorded cycle after the first tap.
     if (startedNewCycle) {
       const firstTap = this.pattern[0]!
       const firstOnAtPhase = this.cycleStartPhase + firstTap.onPhase
@@ -83,10 +84,10 @@ export class PhaseTapPattern {
    * Record a release (note-off) for the current tap.
    */
   release() {
-    const currentPhase = this.clock.getUnwrappedPhase()
+    const currentPhase = this.clock.getPredictedUnwrappedPhase()
     const phaseInCycle = currentPhase - this.recordStartPhase
 
-    if (phaseInCycle < 1 && this.pattern.length > 0) {
+    if (phaseInCycle < this.phasesPerCycle && this.pattern.length > 0) {
       const tap = this.pattern[this.tapId]
       if (tap) {
         tap.durationPhase = phaseInCycle - tap.onPhase
@@ -97,10 +98,14 @@ export class PhaseTapPattern {
   }
 
   /**
-   * Get the current phase position within the cycle [0, 1).
+   * Get the current phase position within the configured cycle [0, phasesPerCycle).
    */
   getPhaseInCycle(): number {
-    return this.clock.getPhase()
+    if (this.recordStartPhase < 0) {
+      return 0
+    }
+    const cyclePhase = this.clock.getPredictedUnwrappedPhase() - this.recordStartPhase
+    return ((cyclePhase % this.phasesPerCycle) + this.phasesPerCycle) % this.phasesPerCycle
   }
 
   private waitForOn() {
@@ -118,8 +123,8 @@ export class PhaseTapPattern {
         this.waitForOff()
       })
     } else {
-      // New cycle - prevent drift by scheduling from integer cycle boundary
-      const nextCycleStart = this.cycleStartPhase + 1
+      // New cycle - prevent drift by scheduling from the recorded cycle length
+      const nextCycleStart = this.cycleStartPhase + this.phasesPerCycle
 
       this.queue.whenPhase(nextCycleStart, (msUntil) => {
         this.cycleStartPhase = nextCycleStart

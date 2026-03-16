@@ -88,7 +88,7 @@ export class LFOControl {
     this.divisorFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
         new Controls.Base.Args('divisor', mX + colW * 2, mY, colW, otherControlsHeight, '#84f'),
-        new Controls.Fader.State(4), 1, 4, 0 // Integer 1-4, shortest cycle is 1/4 phase
+        new Controls.Fader.State(4), 1, 32, 0 // Integer 1-32
       )
     )
 

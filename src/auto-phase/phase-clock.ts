@@ -83,6 +83,10 @@ export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
     return this.unwrappedPhase
   }
 
+  getPredictedUnwrappedPhase(): number {
+    return this.unwrappedPhase + this.getElapsedSinceLastTickS() * this.phaseRate
+  }
+
   getPhaseRate(): number {
     return this.phaseRate
   }
