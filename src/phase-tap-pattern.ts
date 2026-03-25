@@ -1,25 +1,35 @@
 import { PhaseClock } from './phase-clock'
 import { PhaseQueue } from './phase-queue'
 
-interface PhaseTap {
-  onPhase: number      // Phase within cycle [0, 1)
-  durationPhase: number // Duration in phase units (0, 1]
+interface LoopEvent {
+  down: number
+  up: number
   velocity: number
 }
 
 /**
  * Phase-based tap pattern recorder and player.
- * Records note-on/off events as phase positions within a normalized [0, 1) cycle.
- * Plays back patterns using PhaseQueue for accurate scheduling.
+ * Records note-on/off events inside a fixed-duration phase loop
+ * and replays them from the original recording start anchor.
  */
 export class PhaseTapPattern {
-  private recordStartPhase = -1
-  private preventAll = false
-  private tapId = 0
-  private pattern: PhaseTap[] = []
-  private cycleStartPhase = 0
   private queue: PhaseQueue
-  private waitingForOff = false
+  private schedulerToken = 0
+
+  private events: LoopEvent[] = []
+
+  private isRecording = false
+  private recordingStartUnwrappedPhase = 0
+  private pressedAtLoopTime: number | undefined
+  private pressedVelocity = 0
+
+  private isPlaying = false
+  private playbackStartUnwrappedPhase = 0
+  private nextDownIndex = 0
+  private nextUpIndex = 0
+  private downIteration = 0
+  private upIteration = 0
+  private outputIsDown = false
 
   constructor(
     private clock: PhaseClock,
@@ -37,46 +47,15 @@ export class PhaseTapPattern {
    * Record a tap (note-on) at the current phase.
    */
   tap(velocity = 1) {
-    const currentPhase = this.clock.getPredictedUnwrappedPhase()
-    let phaseInCycle = currentPhase - this.recordStartPhase
-    let startedNewCycle = false
+    const now = this.clock.getPredictedUnwrappedPhase()
+    this.finalizeRecordingIfNeeded(now)
 
-    if (phaseInCycle >= this.phasesPerCycle || this.recordStartPhase < 0) {
-      // Start new recording cycle
-      startedNewCycle = true
-      this.recordStartPhase = currentPhase
-      phaseInCycle = 0
-      this.queue.cancelAll()
-      this.preventAll = true
-      this.tapId = 0
-      this.pattern = []
-
-      // Compensate for latency
-      const latencyPhase = (this.latencyCompensateMs / 1000) * this.clock.getPhaseRate()
-      this.cycleStartPhase = currentPhase + this.phasesPerCycle - latencyPhase
+    if (!this.isRecording) {
+      this.startRecording(now)
     }
 
-    // Record the tap
-    this.pattern.push({
-      onPhase: phaseInCycle,
-      velocity,
-      durationPhase: this.phasesPerCycle - phaseInCycle // Default duration if release not called
-    })
-
-    // Schedule first playback one full recorded cycle after the first tap.
-    if (startedNewCycle) {
-      const firstTap = this.pattern[0]!
-      const firstOnAtPhase = this.cycleStartPhase + firstTap.onPhase
-      this.queue.whenPhase(firstOnAtPhase, (msUntil) => {
-        setTimeout(() => {
-          this.preventAll = false
-          this.tapId = 0
-          this.onOn(firstTap.velocity)
-          this.waitForOff()
-        }, msUntil)
-      })
-    }
-
+    this.pressedAtLoopTime = Math.max(0, now - this.recordingStartUnwrappedPhase)
+    this.pressedVelocity = velocity
     this.onOn(velocity)
   }
 
@@ -84,92 +63,63 @@ export class PhaseTapPattern {
    * Record a release (note-off) for the current tap.
    */
   release() {
-    const currentPhase = this.clock.getPredictedUnwrappedPhase()
-    const phaseInCycle = currentPhase - this.recordStartPhase
+    const now = this.clock.getPredictedUnwrappedPhase()
+    this.finalizeRecordingIfNeeded(now)
 
-    if (phaseInCycle < this.phasesPerCycle && this.pattern.length > 0) {
-      const tap = this.pattern[this.tapId]
-      if (tap) {
-        tap.durationPhase = phaseInCycle - tap.onPhase
-        this.tapId++
-      }
-      this.onOff()
+    if (!this.isRecording || this.pressedAtLoopTime === undefined) {
+      return
     }
+
+    const up = Math.min(this.phasesPerCycle, Math.max(0, now - this.recordingStartUnwrappedPhase))
+    this.events.push({
+      down: this.pressedAtLoopTime,
+      up,
+      velocity: this.pressedVelocity
+    })
+    this.pressedAtLoopTime = undefined
+    this.pressedVelocity = 0
+    this.onOff()
   }
 
   /**
-   * Get the current phase position within the configured cycle [0, phasesPerCycle).
+   * Get the current position within the active loop in phase units.
    */
   getPhaseInCycle(): number {
-    if (this.recordStartPhase < 0) {
-      return 0
+    const now = this.clock.getPredictedUnwrappedPhase()
+
+    if (this.isRecording) {
+      return Math.min(this.phasesPerCycle, Math.max(0, now - this.recordingStartUnwrappedPhase))
     }
-    const cyclePhase = this.clock.getPredictedUnwrappedPhase() - this.recordStartPhase
-    return ((cyclePhase % this.phasesPerCycle) + this.phasesPerCycle) % this.phasesPerCycle
-  }
 
-  private waitForOn() {
-    this.tapId++
-    if (this.tapId < this.pattern.length) {
-      const tap = this.pattern[this.tapId]!
-      const onAtPhase = this.cycleStartPhase + tap.onPhase
-
-      this.queue.whenPhase(onAtPhase, (msUntil) => {
-        setTimeout(() => {
-          if (!this.preventAll) {
-            this.onOn(tap.velocity)
-          }
-        }, msUntil)
-        this.waitForOff()
-      })
-    } else {
-      // New cycle - prevent drift by scheduling from the recorded cycle length
-      const nextCycleStart = this.cycleStartPhase + this.phasesPerCycle
-
-      this.queue.whenPhase(nextCycleStart, (msUntil) => {
-        this.cycleStartPhase = nextCycleStart
-        this.tapId = 0
-        const tap = this.pattern[0]
-        if (tap) {
-          setTimeout(() => {
-            if (!this.preventAll) {
-              this.onOn(tap.velocity)
-            }
-          }, msUntil)
-          this.waitForOff()
-        }
-      })
+    if (this.isPlaying) {
+      const loopTime = now - this.playbackStartUnwrappedPhase
+      return ((loopTime % this.phasesPerCycle) + this.phasesPerCycle) % this.phasesPerCycle
     }
-  }
 
-  private waitForOff() {
-    this.waitingForOff = true
-    const tap = this.pattern[this.tapId]
-    if (!tap) return
-
-    const offAtPhase = this.cycleStartPhase + tap.onPhase + tap.durationPhase
-
-    this.queue.whenPhase(offAtPhase, (msUntil) => {
-      setTimeout(() => {
-        if (!this.preventAll) {
-          this.onOff()
-        }
-      }, msUntil)
-      this.waitForOn()
-      this.waitingForOff = false
-    })
+    return 0
   }
 
   /**
-   * Stop playback and silence any active note.
+   * Stop playback/recording and silence any active note.
    */
   stop() {
-    if (this.waitingForOff) {
+    this.schedulerToken++
+    this.queue.cancelAll()
+
+    if (this.outputIsDown || this.pressedAtLoopTime !== undefined) {
       this.onOff()
     }
-    this.preventAll = true
-    this.queue.cancelAll()
-    this.waitingForOff = false
+
+    this.isRecording = false
+    this.pressedAtLoopTime = undefined
+    this.pressedVelocity = 0
+
+    this.isPlaying = false
+    this.outputIsDown = false
+    this.nextDownIndex = 0
+    this.nextUpIndex = 0
+    this.downIteration = 0
+    this.upIteration = 0
   }
 
   /**
@@ -177,15 +127,14 @@ export class PhaseTapPattern {
    */
   clear() {
     this.stop()
-    this.pattern = []
-    this.recordStartPhase = -1
+    this.events = []
   }
 
   /**
    * Get the number of taps in the current pattern.
    */
   getPatternLength(): number {
-    return this.pattern.length
+    return this.events.length
   }
 
   /**
@@ -194,5 +143,127 @@ export class PhaseTapPattern {
   dispose() {
     this.stop()
     this.clock.removeQueue(this.queue)
+  }
+
+  private startRecording(now: number) {
+    this.stop()
+    this.events = []
+    this.isRecording = true
+    this.recordingStartUnwrappedPhase = now
+
+    const token = ++this.schedulerToken
+    const recordEnd = this.recordingStartUnwrappedPhase + this.phasesPerCycle
+    this.queue.whenPhase(recordEnd, (msUntil) => {
+      setTimeout(() => {
+        if (token !== this.schedulerToken) return
+        this.finalizeRecordingIfNeeded(recordEnd)
+      }, msUntil)
+    })
+  }
+
+  private finalizeRecordingIfNeeded(now: number) {
+    if (!this.isRecording) return
+
+    const recordEnd = this.recordingStartUnwrappedPhase + this.phasesPerCycle
+    if (now < recordEnd) return
+
+    if (this.pressedAtLoopTime !== undefined) {
+      this.events.push({
+        down: this.pressedAtLoopTime,
+        up: this.phasesPerCycle,
+        velocity: this.pressedVelocity,
+      })
+      this.pressedAtLoopTime = undefined
+      this.pressedVelocity = 0
+      this.onOff()
+    }
+
+    this.isRecording = false
+    if (this.events.length === 0) {
+      return
+    }
+
+    this.startPlayback(recordEnd)
+  }
+
+  private startPlayback(loopStart: number) {
+    this.isPlaying = true
+    this.playbackStartUnwrappedPhase = loopStart
+    this.outputIsDown = false
+    this.nextDownIndex = 0
+    this.nextUpIndex = 0
+    this.downIteration = 0
+    this.upIteration = 0
+    this.scheduleNextPlaybackEvent()
+  }
+
+  private scheduleNextPlaybackEvent() {
+    if (!this.isPlaying || this.events.length === 0) return
+
+    const token = this.schedulerToken
+    const nextEventPhase = Math.min(this.getNextUpPhase(), this.getNextDownPhase())
+    this.queue.whenPhase(nextEventPhase, (msUntil) => {
+      setTimeout(() => {
+        if (token !== this.schedulerToken) return
+        this.consumePlaybackEventsAt(nextEventPhase)
+      }, msUntil)
+    })
+  }
+
+  private consumePlaybackEventsAt(targetPhase: number) {
+    while (true) {
+      const nextUpPhase = this.getNextUpPhase()
+      const nextDownPhase = this.getNextDownPhase()
+      const nextPhase = Math.min(nextUpPhase, nextDownPhase)
+
+      if (!Number.isFinite(nextPhase) || Math.abs(nextPhase - targetPhase) > 1e-9) {
+        break
+      }
+
+      if (nextUpPhase <= nextDownPhase) {
+        if (this.outputIsDown) {
+          this.onOff()
+          this.outputIsDown = false
+        }
+        this.advanceUpPointer()
+      } else {
+        const event = this.events[this.nextDownIndex]
+        if (event) {
+          this.onOn(event.velocity)
+          this.outputIsDown = true
+        }
+        this.advanceDownPointer()
+      }
+    }
+
+    this.scheduleNextPlaybackEvent()
+  }
+
+  private getNextDownPhase(): number {
+    const event = this.events[this.nextDownIndex]
+    if (!event) return Number.POSITIVE_INFINITY
+    return this.playbackStartUnwrappedPhase + event.down + this.downIteration * this.phasesPerCycle
+  }
+
+  private getNextUpPhase(): number {
+    const event = this.events[this.nextUpIndex]
+    if (!event) return Number.POSITIVE_INFINITY
+    return this.playbackStartUnwrappedPhase + event.up + this.upIteration * this.phasesPerCycle
+  }
+
+  private advanceDownPointer() {
+    this.nextDownIndex += 1
+    if (this.nextDownIndex >= this.events.length) {
+      this.nextDownIndex = 0
+      this.downIteration += 1
+    }
+  }
+
+  private advanceUpPointer() {
+    this.nextUpIndex += 1
+    if (this.nextUpIndex >= this.events.length) {
+      this.nextUpIndex = 0
+      this.upIteration += 1
+    }
   }
 }
