@@ -37,7 +37,7 @@ export class PhaseTapPattern {
     public onOff: () => void = () => {},
     private phasesPerCycle = 1,
     lookAheadMs = 70,
-    private latencyCompensateMs = 1000 / 60
+    _latencyCompensateMs = 1000 / 60
   ) {
     this.queue = new PhaseQueue(lookAheadMs)
     clock.registerQueue(this.queue)

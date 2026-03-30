@@ -97,7 +97,7 @@ export class Clock {
     this.tickDeltaS = this.tickDeltaMS * 0.001
     this.previousTick = now
 
-    this.FPS = 1 / this.tickDeltaS
+    this.FPS = this.tickDeltaS === 0 ? Infinity : 1 / this.tickDeltaS
     this.smoothFPS = this.smoothFPS * 0.9 + 0.1 * this.FPS
 
     this.update()
@@ -236,6 +236,10 @@ export class Clock {
 
   getTickDeltaS() {
     return this.tickDeltaS 
+  }
+
+  getCappedTickDeltaS(amount = 1) {
+    return Math.max(-amount, Math.min(amount, this.tickDeltaS))
   }
 
   getTickDeltaBeat() {

@@ -39,6 +39,11 @@ export interface PhaseClock {
   getTickDeltaS(): number
 
   /**
+   * Get delta time since last tick in seconds, clamped to [-amount, amount].
+   */
+  getCappedTickDeltaS(amount?: number): number
+
+  /**
    * Call once per frame to update internal state and notify queues.
    */
   tick(): void
@@ -83,6 +88,10 @@ export abstract class BasePhaseClockImpl implements PhaseClock {
 
   getTickDeltaS(): number {
     return this.tickDeltaS
+  }
+
+  getCappedTickDeltaS(amount = 1): number {
+    return Math.max(-amount, Math.min(amount, this.tickDeltaS))
   }
 
   tick(): void {
