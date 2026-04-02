@@ -135,8 +135,12 @@ export class AutoPhase implements PhaseClock {
 
   private async loadModel() {
     try {
-      // Set WASM path to public directory (must be copied there by the artwork)
+      // Force the lighter single-threaded WASM runtime. The threaded build
+      // can fail on constrained browsers/dev setups with executable-memory
+      // allocation errors and then poison later backend initialization.
       ort.env.wasm.wasmPaths = './'
+      ort.env.wasm.numThreads = 1
+      ort.env.wasm.proxy = false
 
       this.session = await ort.InferenceSession.create(this.config.modelPath)
       this.resetHiddenState()
