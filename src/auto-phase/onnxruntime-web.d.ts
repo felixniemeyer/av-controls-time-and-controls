@@ -13,6 +13,7 @@ declare module 'onnxruntime-web' {
     readonly data: Float32Array | Int32Array | Uint8Array | BigInt64Array
     readonly dims: readonly number[]
     readonly type: string
+    dispose(): void
   }
 
   export interface RunOptions {
@@ -26,6 +27,7 @@ declare module 'onnxruntime-web' {
     ): Promise<{ [name: string]: Tensor }>
     inputNames: readonly string[]
     outputNames: readonly string[]
+    dispose?(): Promise<void>
   }
 
   export namespace InferenceSession {

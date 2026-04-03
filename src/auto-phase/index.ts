@@ -29,6 +29,8 @@ export interface AutoPhaseConfig {
   hiddenSize?: number
   /** Number of GRU layers (default 2) */
   numLayers?: number
+  /** Called when an incoming audio frame is dropped in favor of a newer one */
+  onAudioFrameDropped?: () => void
 }
 
 export type AutoPhaseInputMode = 'disabled' | 'audio device input' | 'simulate'
@@ -90,9 +92,16 @@ export class AutoPhase implements PhaseClock {
   private enabled = true
   private inputMode: AutoPhaseInputMode = 'audio device input'
   private selectedDeviceId: string | null = null
+  private inferenceInFlight = false
+  private pendingAudioFrame: Float32Array | null = null
+  private droppedAudioFrames = 0
+  private lastDropLogAtMs = -Infinity
+  private disposed = false
+  private modelLoadGeneration = 0
 
-  private readonly config: Required<Omit<AutoPhaseConfig, 'melConfig' | 'menuSpec'>> & { melConfig?: MelFrontendConfig }
+  private readonly config: Required<Omit<AutoPhaseConfig, 'melConfig' | 'menuSpec' | 'onAudioFrameDropped'>> & { melConfig?: MelFrontendConfig }
   private readonly storageKey: string
+  private readonly onAudioFrameDropped?: () => void
 
   constructor(config: AutoPhaseConfig) {
     this.config = {
@@ -105,6 +114,7 @@ export class AutoPhase implements PhaseClock {
       melConfig: config.melConfig
     }
     this.storageKey = this.config.storageKey
+    this.onAudioFrameDropped = config.onAudioFrameDropped
 
     // Initialize mel frontend
     this.melFrontend = new MelFrontend({
@@ -133,7 +143,71 @@ export class AutoPhase implements PhaseClock {
     this.loadModel()
   }
 
+  private disposeTensor(tensor: ort.Tensor | null | undefined) {
+    if (!tensor) {
+      return
+    }
+    try {
+      tensor.dispose()
+    } catch (err) {
+      console.warn('[AutoPhase] Failed to dispose tensor:', err)
+    }
+  }
+
+  private logDroppedAudioFrames() {
+    if (this.droppedAudioFrames <= 0) {
+      return
+    }
+    const nowMs = performance.now()
+    if (nowMs - this.lastDropLogAtMs < 1000) {
+      return
+    }
+    this.lastDropLogAtMs = nowMs
+    console.warn(`[AutoPhase] Dropping audio frames, keeping latest only. Dropped=${this.droppedAudioFrames}`)
+    this.droppedAudioFrames = 0
+  }
+
+  private enqueueAudioFrame(audioFrame: Float32Array) {
+    if (this.inferenceInFlight) {
+      if (this.pendingAudioFrame) {
+        this.droppedAudioFrames++
+        this.onAudioFrameDropped?.()
+      }
+      this.pendingAudioFrame = audioFrame
+      this.logDroppedAudioFrames()
+      return
+    }
+
+    this.inferenceInFlight = true
+    void this.processQueuedAudioFrames(audioFrame)
+  }
+
+  private async processQueuedAudioFrames(initialFrame: Float32Array) {
+    let frame: Float32Array | null = initialFrame
+
+    try {
+      while (frame && !this.isDisposed()) {
+        await this.processFrame(frame)
+        frame = this.pendingAudioFrame
+        this.pendingAudioFrame = null
+      }
+    } finally {
+      this.inferenceInFlight = false
+      if (!this.isDisposed() && this.pendingAudioFrame) {
+        const latestFrame = this.pendingAudioFrame
+        this.pendingAudioFrame = null
+        this.inferenceInFlight = true
+        void this.processQueuedAudioFrames(latestFrame)
+      }
+    }
+  }
+
+  private isDisposed() {
+    return this.disposed
+  }
+
   private async loadModel() {
+    const loadGeneration = ++this.modelLoadGeneration
     try {
       // Force the lighter single-threaded WASM runtime. The threaded build
       // can fail on constrained browsers/dev setups with executable-memory
@@ -142,7 +216,18 @@ export class AutoPhase implements PhaseClock {
       ort.env.wasm.numThreads = 1
       ort.env.wasm.proxy = false
 
-      this.session = await ort.InferenceSession.create(this.config.modelPath)
+      const session = await ort.InferenceSession.create(this.config.modelPath)
+      const disposableSession = session as ort.InferenceSession & { dispose?: () => Promise<void> }
+      if (this.disposed || loadGeneration !== this.modelLoadGeneration) {
+        if (disposableSession.dispose) {
+          void disposableSession.dispose().catch((err: unknown) => {
+            console.warn('[AutoPhase] Failed to dispose superseded session:', err)
+          })
+        }
+        return
+      }
+
+      this.session = session
       this.resetHiddenState()
 
       this.modelLoaded = true
@@ -153,6 +238,8 @@ export class AutoPhase implements PhaseClock {
   }
 
   private resetHiddenState() {
+    this.disposeTensor(this.hiddenState)
+
     // Initialize hidden state: [numLayers, 1, hiddenSize]
     const stateSize = this.config.numLayers * 1 * this.config.hiddenSize
     this.hiddenState = new ort.Tensor(
@@ -285,7 +372,7 @@ export class AutoPhase implements PhaseClock {
         })
 
         this.workletNode.port.onmessage = (event) => {
-          this.processFrame(event.data as Float32Array)
+          this.enqueueAudioFrame(event.data as Float32Array)
         }
       }
 
@@ -337,27 +424,42 @@ export class AutoPhase implements PhaseClock {
         state_h: this.hiddenState
       }
 
-      const results = await this.session.run(feeds)
+      let results: Record<string, ort.Tensor> | null = null
+      try {
+        results = await this.session.run(feeds)
 
-      // Extract outputs
-      const phaseOut = results.phase_out
-      const stateHOut = results.state_h_out
+        // Extract outputs
+        const phaseOut = results.phase_out
+        const stateHOut = results.state_h_out
 
-      if (phaseOut && stateHOut) {
-        // Update hidden state for next frame
-        this.hiddenState = stateHOut as ort.Tensor
+        if (phaseOut && stateHOut) {
+          const previousHiddenState = this.hiddenState
+          this.hiddenState = stateHOut as ort.Tensor
 
-        // Decode phase output: [batch, seq_len, 3] = [sin, cos, phase_rate]
+        // Decode phase output: [batch, seq_len, 3] = [sin, cos, log(bar_duration_seconds)]
         const data = phaseOut.data as Float32Array
         const sinPhase = data[0]!
         const cosPhase = data[1]!
-        const phaseRateRaw = data[2]! // radians per frame
+        const logBarDuration = data[2]!
 
         // Decode phase from sin/cos
         const rawPhase = (Math.atan2(sinPhase, cosPhase) / (2 * Math.PI) + 1) % 1
 
         // Update phase clock
-        this.phaseClock.updateFromInference(rawPhase, phaseRateRaw)
+        this.phaseClock.updateFromInference(rawPhase, logBarDuration)
+
+          this.disposeTensor(previousHiddenState)
+        }
+      } finally {
+        this.disposeTensor(melTensor)
+        if (results) {
+          for (const [name, tensor] of Object.entries(results)) {
+            if (name === 'state_h_out' && tensor === this.hiddenState) {
+              continue
+            }
+            this.disposeTensor(tensor)
+          }
+        }
       }
     } catch (err) {
       console.error('[AutoPhase] Inference error:', err)
@@ -394,6 +496,10 @@ export class AutoPhase implements PhaseClock {
 
   getTickDeltaS(): number {
     return this.phaseClock.getTickDeltaS()
+  }
+
+  getCappedTickDeltaS(amount?: number): number {
+    return this.phaseClock.getCappedTickDeltaS(amount)
   }
 
   tick(): void {
@@ -495,6 +601,14 @@ export class AutoPhase implements PhaseClock {
     return this.phaseOffsetMs
   }
 
+  setPhaseSmoothing(value: number): void {
+    this.phaseClock.setPhaseSmoothing(value)
+  }
+
+  getPhaseSmoothing(): number {
+    return this.phaseClock.getPhaseSmoothing()
+  }
+
   /**
    * Enable auto phase inference.
    */
@@ -528,24 +642,45 @@ export class AutoPhase implements PhaseClock {
 
     // Process silence through mel frontend and inference
     const silenceFrame = new Float32Array(this.config.frameSize)
-    this.processFrame(silenceFrame)
+    this.enqueueAudioFrame(silenceFrame)
   }
 
   /**
    * Stop audio capture and release resources.
    */
   dispose() {
+    this.disposed = true
+    this.modelLoadGeneration += 1
+    this.modelLoaded = false
     this.stopCapture()
 
     if (this.workletNode) {
+      this.workletNode.port.onmessage = null
       this.workletNode.disconnect()
       this.workletNode = null
     }
 
     if (this.audioContext) {
-      this.audioContext.close()
+      void this.audioContext.close().catch((err: unknown) => {
+        console.warn('[AutoPhase] Failed to close audio context:', err)
+      })
       this.audioContext = null
     }
+
+    this.pendingAudioFrame = null
+    this.inferenceInFlight = false
+    this.droppedAudioFrames = 0
+
+    this.disposeTensor(this.hiddenState)
+    this.hiddenState = null
+
+    const session = this.session as (ort.InferenceSession & { dispose?: () => Promise<void> }) | null
+    if (session?.dispose) {
+      void session.dispose().catch((err: unknown) => {
+        console.warn('[AutoPhase] Failed to dispose session:', err)
+      })
+    }
+    this.session = null
 
     this.isCapturing = false
   }

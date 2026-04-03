@@ -156,7 +156,7 @@ export class PhaseTapPattern {
     this.queue.whenPhase(recordEnd, (msUntil) => {
       setTimeout(() => {
         if (token !== this.schedulerToken) return
-        this.finalizeRecordingIfNeeded(recordEnd)
+        this.finalizeRecordingIfNeeded(this.clock.getPredictedUnwrappedPhase())
       }, msUntil)
     })
   }
@@ -183,18 +183,61 @@ export class PhaseTapPattern {
       return
     }
 
-    this.startPlayback(recordEnd)
+    this.startPlayback(now)
   }
 
-  private startPlayback(loopStart: number) {
+  private startPlayback(now: number) {
     this.isPlaying = true
-    this.playbackStartUnwrappedPhase = loopStart
+    this.events.sort((a, b) => a.down - b.down)
+    this.playbackStartUnwrappedPhase = this.getPlaybackLoopStart(now)
     this.outputIsDown = false
     this.nextDownIndex = 0
     this.nextUpIndex = 0
     this.downIteration = 0
     this.upIteration = 0
+    this.initializePlaybackState(now)
     this.scheduleNextPlaybackEvent()
+  }
+
+  private getPlaybackLoopStart(now: number) {
+    const elapsed = now - this.recordingStartUnwrappedPhase
+    const phaseInCycle = ((elapsed % this.phasesPerCycle) + this.phasesPerCycle) % this.phasesPerCycle
+    return now - phaseInCycle
+  }
+
+  private initializePlaybackState(now: number) {
+    const currentLoopTime = ((now - this.playbackStartUnwrappedPhase) % this.phasesPerCycle + this.phasesPerCycle) % this.phasesPerCycle
+    const activeEventIndex = this.events.findIndex(event =>
+      event.down <= currentLoopTime && currentLoopTime < event.up
+    )
+
+    if (activeEventIndex >= 0) {
+      const activeEvent = this.events[activeEventIndex]!
+      this.outputIsDown = true
+      this.nextUpIndex = activeEventIndex
+      this.upIteration = 0
+      this.onOn(activeEvent.velocity)
+
+      const nextDown = this.findNextDownPointer(currentLoopTime)
+      this.nextDownIndex = nextDown.index
+      this.downIteration = nextDown.iteration
+      return
+    }
+
+    const nextDown = this.findNextDownPointer(currentLoopTime)
+    this.nextDownIndex = nextDown.index
+    this.downIteration = nextDown.iteration
+    this.nextUpIndex = nextDown.index
+    this.upIteration = nextDown.iteration
+  }
+
+  private findNextDownPointer(currentLoopTime: number) {
+    const epsilon = 1e-9
+    const nextIndex = this.events.findIndex(event => event.down > currentLoopTime + epsilon)
+    if (nextIndex >= 0) {
+      return { index: nextIndex, iteration: 0 }
+    }
+    return { index: 0, iteration: 1 }
   }
 
   private scheduleNextPlaybackEvent() {

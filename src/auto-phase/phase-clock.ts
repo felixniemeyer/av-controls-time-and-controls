@@ -7,8 +7,9 @@ import { PhaseClock, BasePhaseClockImpl } from '../phase-clock'
 export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
   private phase = 0
   private unwrappedPhase = 0
-  private phaseRate = 2 // Default ~120 BPM (0.5 bars/sec at 4 beats/bar)
-  private smoothedPhaseRate = 2
+  private phaseRate = 0
+  private smoothedPhaseRate = 0
+  private phaseSmoothing = 0.5
 
   // EMA smoothing factor for phase rate (~100ms at 60fps)
   // alpha = 1 - exp(-dt / tau), for tau=0.1s and dt=1/60: alpha ≈ 0.154
@@ -23,47 +24,40 @@ export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
   /**
    * Update phase from model inference output.
    * @param rawPhase Decoded phase [0, 1) from atan2(sin, cos)
-   * @param rawPhaseRate Phase rate in radians/frame from model
+   * @param rawLogBarDuration Natural log of bar duration in seconds
    */
-  updateFromInference(rawPhase: number, rawPhaseRate: number) {
-    // Current fractional phase
-    const currentFrac = this.unwrappedPhase % 1
+  updateFromInference(rawPhase: number, rawLogBarDuration: number) {
+    const barDurationS = Math.exp(rawLogBarDuration)
+    const phaseRateCyclesPerSec = Number.isFinite(barDurationS) && barDurationS > 1e-4
+      ? 1 / barDurationS
+      : 0
 
-    // Compute phase delta, handling wrap-around
-    let phaseDelta = rawPhase - currentFrac
-
-    // Wrap detection: if we jumped backwards by more than 0.5, we wrapped forward
-    if (phaseDelta < -0.5) {
-      phaseDelta += 1
-    }
-
-    // Validate step size
-    if (phaseDelta < 0) {
-      // Going backwards - freeze (don't update phase)
-      // This handles jitter and invalid predictions
-    } else if (phaseDelta > this.maxPhaseStep) {
-      // Step too large - cap at max
-      this.unwrappedPhase += this.maxPhaseStep
-      this.phase = this.unwrappedPhase % 1
-    } else {
-      // Valid forward motion
-      this.unwrappedPhase += phaseDelta
-      this.phase = rawPhase
-    }
-
-    // Convert phase rate: radians/frame -> cycles/second
-    // cycles/frame = radians/frame / (2 * PI)
-    // cycles/second = cycles/frame * fps
-    const phaseRateCyclesPerSec = (rawPhaseRate / (2 * Math.PI)) * this.fps
-
-    // Smooth phase rate with EMA (only if positive)
-    if (phaseRateCyclesPerSec > 0.01) {
+    if (phaseRateCyclesPerSec > 0.001 && phaseRateCyclesPerSec < this.fps) {
       this.smoothedPhaseRate =
         this.smoothedPhaseRate * (1 - this.phaseRateAlpha) +
         phaseRateCyclesPerSec * this.phaseRateAlpha
     }
-
     this.phaseRate = this.smoothedPhaseRate
+
+    const currentFrac = ((this.unwrappedPhase % 1) + 1) % 1
+    let wrappedDelta = rawPhase - currentFrac
+
+    // Fold into [-0.5, 0.5) so wrap-around is treated as the shortest path.
+    if (wrappedDelta >= 0.5) {
+      wrappedDelta -= 1
+    } else if (wrappedDelta < -0.5) {
+      wrappedDelta += 1
+    }
+
+    // Only allow forward corrections. Negative wrapped deltas are interpreted
+    // as stale/jittery observations from the previous part of the cycle.
+    const forwardError = Math.min(
+      this.maxPhaseStep,
+      Math.max(0, wrappedDelta),
+    )
+    const correctionAlpha = 1 - this.phaseSmoothing * 0.95
+    this.unwrappedPhase += forwardError * correctionAlpha
+    this.phase = ((this.unwrappedPhase % 1) + 1) % 1
   }
 
   /**
@@ -91,6 +85,29 @@ export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
     return this.phaseRate
   }
 
+  setPhaseSmoothing(value: number) {
+    this.phaseSmoothing = Math.max(0, Math.min(1, value))
+  }
+
+  getPhaseSmoothing() {
+    return this.phaseSmoothing
+  }
+
+  tick(): void {
+    const now = Date.now()
+    this.tickDeltaS = (now - this.lastTickTime) / 1000
+    this.lastTickTime = now
+    this.seconds += this.tickDeltaS
+
+    const rateInfluence = this.phaseSmoothing
+    if (this.phaseRate > 0 && rateInfluence > 0) {
+      this.unwrappedPhase += this.tickDeltaS * this.phaseRate * rateInfluence
+      this.phase = ((this.unwrappedPhase % 1) + 1) % 1
+    }
+
+    this.notifyQueues()
+  }
+
   /**
    * Advance phase using current tick delta and a fixed phase rate.
    * Useful for synthetic/fallback phase generation.
@@ -114,8 +131,8 @@ export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
     const nextCycleBoundary = Math.ceil(this.unwrappedPhase)
     this.phase = 0
     this.unwrappedPhase = nextCycleBoundary
-    this.phaseRate = 2
-    this.smoothedPhaseRate = 2
+    this.phaseRate = 0
+    this.smoothedPhaseRate = 0
   }
 
   /**
