@@ -313,7 +313,47 @@ export class TapPatternPairWithAmountFaderAndEnvelope {
   }
 
   getValue() {
-    return this.envelope.getValue() 
+    return this.envelope.getValue()
+  }
+}
+
+export class PhaseTapPatternPairWithAmountFaderAndEnvelope {
+  private controls: { [key: string]: Controls.Base.Receiver }
+  private amountFader: Controls.Fader.Receiver
+  private envelope: Envelope
+
+  constructor(
+    name: string,
+    x: number, y: number,
+    width: number, height: number,
+    color: string,
+    phaseClock: PhaseClock,
+    envelope: Envelope | undefined,
+    phasesPerCycle = 1,
+  ) {
+    const buttonsHeight = 30 / 50 * height
+    this.amountFader = new Controls.Fader.Receiver(new Controls.Fader.Spec(
+      new Controls.Base.Args(name + ' amount', x, y + buttonsHeight, width, height - buttonsHeight, color),
+      new Controls.Fader.State(0.5), 0, 1, 2
+    ))
+    this.controls = {
+      ...makePhasePatternPadPair(name, x, y, width, buttonsHeight, color, phaseClock, (v: number) => {
+        this.envelope.trigger(v * this.amountFader.value)
+      }, () => {
+        this.envelope.release()
+      }, phasesPerCycle),
+      [name + ' amount']: this.amountFader
+    }
+    // Note: envelope must be compatible with PhaseClock (use Clock wrapper if needed)
+    this.envelope = envelope || new LinearDecay(1, phaseClock as any)
+  }
+
+  getControls() {
+    return this.controls
+  }
+
+  getValue() {
+    return this.envelope.getValue()
   }
 }
 
