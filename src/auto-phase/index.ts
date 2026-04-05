@@ -502,8 +502,8 @@ export class AutoPhase implements PhaseClock {
     return this.phaseClock.getCappedTickDeltaS(amount)
   }
 
-  tick(): void {
-    this.phaseClock.tick()
+  tick(deltaS?: number): void {
+    this.phaseClock.tick(deltaS)
     if (this.enabled && this.inputMode === 'simulate') {
       this.phaseClock.advance(this.syntheticPhaseRate)
     }

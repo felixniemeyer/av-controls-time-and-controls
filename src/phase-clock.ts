@@ -23,7 +23,7 @@ export interface TimeClock {
   /**
    * Call once per frame to update internal state.
    */
-  tick(): void
+  tick(deltaS?: number): void
 
   /**
    * Reset clock state to its initial value.
@@ -107,9 +107,9 @@ export abstract class BasePhaseClockImpl implements PhaseClock {
     return Math.max(-amount, Math.min(amount, this.tickDeltaS))
   }
 
-  tick(): void {
+  tick(deltaS?: number): void {
     const now = Date.now()
-    this.tickDeltaS = (now - this.lastTickTime) / 1000
+    this.tickDeltaS = deltaS ?? ((now - this.lastTickTime) / 1000)
     this.lastTickTime = now
     this.seconds += this.tickDeltaS
     this.notifyQueues()

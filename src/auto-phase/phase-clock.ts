@@ -93,9 +93,9 @@ export class AutoPhaseClock extends BasePhaseClockImpl implements PhaseClock {
     return this.phaseSmoothing
   }
 
-  tick(): void {
+  tick(deltaS?: number): void {
     const now = Date.now()
-    this.tickDeltaS = (now - this.lastTickTime) / 1000
+    this.tickDeltaS = deltaS ?? ((now - this.lastTickTime) / 1000)
     this.lastTickTime = now
     this.seconds += this.tickDeltaS
 

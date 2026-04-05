@@ -9,10 +9,11 @@ export class LFOControl {
   private rangeFader: Controls.Fader.Receiver
   private modeSelector: Controls.Selector.Receiver
   private rateModeSelector: Controls.Selector.Receiver
+  private waveformSelector: Controls.Selector.Receiver
   private timeFader: Controls.Fader.Receiver
   private multiplierFader: Controls.Fader.Receiver
   private divisorFader: Controls.Fader.Receiver
-  private shapeFader: Controls.Fader.Receiver // New shape fader
+  private offsetFader: Controls.Fader.Receiver
 
   private controls: { [key: string]: Controls.Base.Receiver }
 
@@ -48,10 +49,10 @@ export class LFOControl {
     const colW = 25 // 4 columns * 25 = 100
     
     // Top section for Range/Mode/Mult/Rate/Div/Time
-    // Bottom section for Shape Fader (16 height)
-    const shapeFaderHeight = 16
-    const shapeFaderY = mH - shapeFaderHeight
-    const otherControlsHeight = 84
+    // Bottom section for waveform + offset controls
+    const bottomControlsHeight = 18
+    const bottomControlsY = mH - bottomControlsHeight
+    const otherControlsHeight = mH - bottomControlsHeight
 
     // For columns 1 and 2, which have a fader and a selector
     const splitH = otherControlsHeight * 0.5 // Each takes 42 height
@@ -100,11 +101,18 @@ export class LFOControl {
       )
     )
 
-    // New Shape Fader at the bottom, spanning all 4 columns
-    this.shapeFader = new Controls.Fader.Receiver(
+    this.waveformSelector = new Controls.Selector.Receiver(
+      new Controls.Selector.Spec(
+        new Controls.Base.Args(name + ' wave', mX, bottomControlsY, colW * 2, bottomControlsHeight, '#999'),
+        ['swell saw', 'decay saw', 'sine', 'square'],
+        new Controls.Selector.State(2)
+      )
+    )
+
+    this.offsetFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args(name + ' shape', mX, shapeFaderY, colW * 4, shapeFaderHeight, '#999'),
-        new Controls.Fader.State(0), -1, 1, 2, // -1=triangle, 0=sine, 1=square
+        new Controls.Base.Args(name + ' offset', mX + colW * 2, bottomControlsY, colW * 2, bottomControlsHeight, '#999'),
+        new Controls.Fader.State(0), 0, 1, 2,
         true // isHorizontal
       )
     )
@@ -121,7 +129,8 @@ export class LFOControl {
         [name + ' rate']: this.rateModeSelector,
         [name + ' div']: this.divisorFader,
         [name + ' time']: this.timeFader,
-        [name + ' shape']: this.shapeFader, // Add shape fader to modal controls
+        [name + ' wave']: this.waveformSelector,
+        [name + ' offset']: this.offsetFader,
       },
       80, // modalWidth
       80  // modalHeight
@@ -142,19 +151,16 @@ export class LFOControl {
     return 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
   }
 
-  private getTriangleWave(phase: number): number {
-    phase = phase % 1 // Ensure phase is 0-1
-    const tri = phase < 0.5 ? phase * 2 : 2 - phase * 2; // 0 to 1 to 0
-    return 0.5 + 0.5 * (tri * 2 - 1); // maps 0->1->0 to -1->1->-1, then 0->1
+  private getSwellSawWave(phase: number): number {
+    return phase
+  }
+
+  private getDecaySawWave(phase: number): number {
+    return 1 - phase
   }
 
   private getSquareWave(phase: number): number {
     return phase < 0.5 ? 1 : 0
-  }
-
-  // Blends two waveforms (A and B) based on blendFactor (0 to 1)
-  private blendWaveforms(a: number, b: number, blendFactor: number): number {
-    return a * (1 - blendFactor) + b * blendFactor
   }
 
   getValue = (): number => {
@@ -176,18 +182,21 @@ export class LFOControl {
       phase = (this.clock.getUnwrappedPhase() % phasesPerCycle) / phasesPerCycle
     }
 
-    // Determine waveform based on shapeFader value (-1 to 1)
-    const shape = this.shapeFader.value
-    let osc = 0
+    phase = (phase + this.offsetFader.value) % 1
+    if (phase < 0) {
+      phase += 1
+    }
 
-    if (shape < 0) { // Blending Triangle to Sine
-      const triangle = this.getTriangleWave(phase)
-      const sine = this.getSineWave(phase)
-      osc = this.blendWaveforms(triangle, sine, shape + 1) // shape+1 maps -1..0 to 0..1
-    } else { // Blending Sine to Square
-      const sine = this.getSineWave(phase)
-      const square = this.getSquareWave(phase)
-      osc = this.blendWaveforms(sine, square, shape) // shape maps 0..1 to 0..1
+    const waveform = this.waveformSelector.spec.options[this.waveformSelector.index]
+    let osc = 0
+    if (waveform === 'swell saw') {
+      osc = this.getSwellSawWave(phase)
+    } else if (waveform === 'decay saw') {
+      osc = this.getDecaySawWave(phase)
+    } else if (waveform === 'square') {
+      osc = this.getSquareWave(phase)
+    } else {
+      osc = this.getSineWave(phase)
     }
     
     const base = this.valueFader.value

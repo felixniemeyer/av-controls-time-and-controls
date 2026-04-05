@@ -49,12 +49,12 @@ export class PhaseSourceManager {
   private currentClock: PhaseClock
 
   // Controls
-  private modeSelector: Controls.Selector.Receiver
-  private bpmFader: Controls.Fader.Receiver
-  private beatsPerBarFader: Controls.Fader.Receiver
-  private tapPad: Controls.Pad.Receiver
-  private tapModeSelector: Controls.Selector.Receiver
-  private setBarPad: Controls.Pad.Receiver
+  private modeSelector!: Controls.Selector.Receiver
+  private bpmFader!: Controls.Fader.Receiver
+  private beatsPerBarFader!: Controls.Fader.Receiver
+  private tapPad!: Controls.Pad.Receiver
+  private tapModeSelector!: Controls.Selector.Receiver
+  private setBarPad!: Controls.Pad.Receiver
 
   constructor(autoPhaseConfig: AutoPhaseConfig) {
     // Initialize clocks
@@ -72,9 +72,10 @@ export class PhaseSourceManager {
     this.modeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
         new Controls.Base.Args('phase source', 0, 0, 25, 10, '#48f'),
-        new Controls.Selector.State(['Off', 'Constant', 'Auto', 'BPM Tap'], 0)
+        ['Off', 'Constant', 'Auto', 'BPM Tap'],
+        new Controls.Selector.State(0)
       ),
-      (index) => {
+      (index: number) => {
         const modes: PhaseSourceMode[] = ['off', 'constant', 'auto', 'bpm']
         this.setMode(modes[index]!)
       }
@@ -87,7 +88,7 @@ export class PhaseSourceManager {
         new Controls.Fader.State(120),
         30, 300, 0
       ),
-      (bpm) => {
+      (bpm: number) => {
         const beatsPerBar = Math.round(this.beatsPerBarFader.value)
         this.constantClock.setTempo(bpm, beatsPerBar)
       }
@@ -100,7 +101,7 @@ export class PhaseSourceManager {
         new Controls.Fader.State(4),
         0.6, 8.4, 0  // [1-8] effectively when rounded
       ),
-      (beats) => {
+      (beats: number) => {
         const rounded = Math.round(beats)
         this.constantClock.setBeatsPerBar(rounded)
         this.bpmClock.setBeatsPerBar(rounded)
@@ -111,7 +112,8 @@ export class PhaseSourceManager {
     this.tapModeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
         new Controls.Base.Args('tap mode', 0, 40, 25, 10, '#48f'),
-        new Controls.Selector.State(['Live', 'Accu', 'Adjust'], 0)
+        ['Live', 'Accu', 'Adjust'],
+        new Controls.Selector.State(0)
       )
     )
 
@@ -121,7 +123,7 @@ export class PhaseSourceManager {
         new Controls.Base.Args('tap', 0, 50, 25, 10, '#aa3')
       ),
       () => {
-        const modeIndex = this.tapModeSelector.value
+        const modeIndex = this.tapModeSelector.index
         const tapParams = [
           // Live mode
           ['default', 1, 7, 0.5, 0.2],
