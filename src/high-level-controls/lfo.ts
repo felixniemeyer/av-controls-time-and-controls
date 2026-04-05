@@ -14,6 +14,7 @@ export class LFOControl {
   private multiplierFader: Controls.Fader.Receiver
   private divisorFader: Controls.Fader.Receiver
   private offsetFader: Controls.Fader.Receiver
+  private powerFader: Controls.Fader.Receiver
 
   private controls: { [key: string]: Controls.Base.Receiver }
 
@@ -43,67 +44,49 @@ export class LFOControl {
 
     // Modal Content Layout
     // All modal internal coordinates are 0-100.
-    const mX = 0
-    const mY = 0
-    const mH = 100 
-    const colW = 25 // 4 columns * 25 = 100
-    
-    // Top section for Range/Mode/Mult/Rate/Div/Time
-    // Bottom section for waveform + offset controls
-    const bottomControlsHeight = 18
-    const bottomControlsY = mH - bottomControlsHeight
-    const otherControlsHeight = mH - bottomControlsHeight
-
-    // For columns 1 and 2, which have a fader and a selector
-    const splitH = otherControlsHeight * 0.5 // Each takes 42 height
-
-    // Column 1: Range (Top) & Mode (Bottom)
     this.rangeFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args('range', mX, mY, colW, splitH, '#f84'),
+        new Controls.Base.Args('range', 20, 0, 20, 40, '#f84'),
         new Controls.Fader.State(0), 0, 1, 2 // Initial value changed from 0.5 to 0
       )
     )
     this.modeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
-        new Controls.Base.Args(name + ' mode', mX, mY + splitH, colW, splitH, '#f84'),
+        new Controls.Base.Args(name + ' mode', 20, 40, 20, 30, '#f84'),
         ['above', 'around', 'below'], new Controls.Selector.State(1) // 'around' is index 1
       )
     )
 
-    // Column 2: Multiplier (Top) & Rate Mode (Bottom)
     this.multiplierFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args('nominator', mX + colW, mY, colW, splitH, '#48f'),
+        new Controls.Base.Args('nominator', 40, 0, 20, 40, '#48f'),
         new Controls.Fader.State(1), 1, 16, 0 // Integer 1-16
       )
     )
     this.rateModeSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
-        new Controls.Base.Args(name + ' rate', mX + colW, mY + splitH, colW, splitH, '#48f'),
+        new Controls.Base.Args(name + ' rate', 40, 40, 20, 30, '#48f'),
         ['phase', 'time'], new Controls.Selector.State(0) // 'phase' is index 0
       )
     )
 
-    // Column 3: Divisor (Full height of the top 84%)
     this.divisorFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args('divisor', mX + colW * 2, mY, colW, otherControlsHeight, '#84f'),
+        new Controls.Base.Args('divisor', 60, 0, 20, 70, '#84f'),
         new Controls.Fader.State(4), 1, 32, 0 // Integer 1-32
       )
     )
 
-    // Column 4: Time Fader (Full height of the top 84%)
     this.timeFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args('period', mX + colW * 3, mY, colW, otherControlsHeight, '#8f4'),
+        new Controls.Base.Args('period', 80, 0, 20, 70, '#8f4'),
         new Controls.Fader.State(2), 0, 60, 2
       )
     )
 
     this.waveformSelector = new Controls.Selector.Receiver(
       new Controls.Selector.Spec(
-        new Controls.Base.Args(name + ' wave', mX, bottomControlsY, colW * 2, bottomControlsHeight, '#999'),
+        new Controls.Base.Args(name + ' wave', 0, 0, 20, 70, '#999'),
         ['swell saw', 'decay saw', 'sine', 'square'],
         new Controls.Selector.State(2)
       )
@@ -111,8 +94,16 @@ export class LFOControl {
 
     this.offsetFader = new Controls.Fader.Receiver(
       new Controls.Fader.Spec(
-        new Controls.Base.Args(name + ' offset', mX + colW * 2, bottomControlsY, colW * 2, bottomControlsHeight, '#999'),
+        new Controls.Base.Args(name + ' phase offset', 40, 70, 60, 15, '#999'),
         new Controls.Fader.State(0), 0, 1, 2,
+        true // isHorizontal
+      )
+    )
+
+    this.powerFader = new Controls.Fader.Receiver(
+      new Controls.Fader.Spec(
+        new Controls.Base.Args(name + ' power', 40, 85, 60, 15, '#999'),
+        new Controls.Fader.State(1), 0.1, 4, 2,
         true // isHorizontal
       )
     )
@@ -130,7 +121,8 @@ export class LFOControl {
         [name + ' div']: this.divisorFader,
         [name + ' time']: this.timeFader,
         [name + ' wave']: this.waveformSelector,
-        [name + ' offset']: this.offsetFader,
+        [name + ' phase offset']: this.offsetFader,
+        [name + ' power']: this.powerFader,
       },
       80, // modalWidth
       80  // modalHeight
@@ -198,6 +190,9 @@ export class LFOControl {
     } else {
       osc = this.getSineWave(phase)
     }
+
+    const power = Math.max(0.0001, this.powerFader.value)
+    osc = Math.pow(Math.max(0, Math.min(1, osc)), power)
     
     const base = this.valueFader.value
     const range = this.rangeFader.value
