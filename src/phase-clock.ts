@@ -1,11 +1,43 @@
 import { PhaseQueue } from './phase-queue'
 
 /**
+ * Interface for time-only clocks (no phase information).
+ * Used for components that need time progression but don't require rhythmic phase.
+ */
+export interface TimeClock {
+  /**
+   * Get elapsed seconds since clock start.
+   */
+  getSeconds(): number
+
+  /**
+   * Get delta time since last tick in seconds.
+   */
+  getTickDeltaS(): number
+
+  /**
+   * Get delta time since last tick in seconds, clamped to [-amount, amount].
+   */
+  getCappedTickDeltaS(amount?: number): number
+
+  /**
+   * Call once per frame to update internal state.
+   */
+  tick(): void
+
+  /**
+   * Reset clock state to its initial value.
+   */
+  reset(): void
+}
+
+/**
  * Interface for phase-based timing sources.
  * Phase is a normalized value in [0, 1) representing position within a cycle.
  * Unwrapped phase is monotonically non-decreasing and can exceed 1.
+ * Extends TimeClock to also provide time information.
  */
-export interface PhaseClock {
+export interface PhaseClock extends TimeClock {
   /**
    * Get the current normalized phase within the cycle [0, 1).
    */
@@ -29,26 +61,6 @@ export interface PhaseClock {
   getPhaseRate(): number
 
   /**
-   * Get elapsed seconds since clock start.
-   */
-  getSeconds(): number
-
-  /**
-   * Get delta time since last tick in seconds.
-   */
-  getTickDeltaS(): number
-
-  /**
-   * Get delta time since last tick in seconds, clamped to [-amount, amount].
-   */
-  getCappedTickDeltaS(amount?: number): number
-
-  /**
-   * Call once per frame to update internal state and notify queues.
-   */
-  tick(): void
-
-  /**
    * Register a PhaseQueue to receive notifications on tick.
    */
   registerQueue(queue: PhaseQueue): void
@@ -59,9 +71,10 @@ export interface PhaseClock {
   removeQueue(queue: PhaseQueue): void
 
   /**
-   * Reset clock state to its initial value.
+   * Set the unwrapped phase to a specific value (e.g., for bar snapping).
+   * Not all implementations support this operation.
    */
-  reset(): void
+  setUnwrappedPhase?(phase: number): void
 }
 
 /**
