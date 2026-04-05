@@ -73,10 +73,10 @@ export class ConstantPhaseClock extends BasePhaseClockImpl {
     this.phase = ((phase % 1) + 1) % 1
   }
 
-  tick(): void {
+  tick(deltaS?: number): void {
     // Update time
     const now = Date.now()
-    this.tickDeltaS = (now - this.lastTickTime) / 1000
+    this.tickDeltaS = deltaS ?? ((now - this.lastTickTime) / 1000)
     this.lastTickTime = now
     this.seconds += this.tickDeltaS
 

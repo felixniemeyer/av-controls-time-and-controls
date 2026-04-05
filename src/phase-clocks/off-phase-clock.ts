@@ -25,10 +25,10 @@ export class OffPhaseClock extends BasePhaseClockImpl {
     return 0
   }
 
-  tick(): void {
+  tick(deltaS?: number): void {
     // Update time but not phase
     const now = Date.now()
-    this.tickDeltaS = (now - this.lastTickTime) / 1000
+    this.tickDeltaS = deltaS ?? ((now - this.lastTickTime) / 1000)
     this.lastTickTime = now
     this.seconds += this.tickDeltaS
     this.notifyQueues()
