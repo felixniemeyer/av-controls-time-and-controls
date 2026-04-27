@@ -46,7 +46,7 @@ export class ExponentialDecay extends Envelope {
   }
 
   getValue() {
-    const t = this.clock.getSeconds() - this.lastTriggerTime
+    const t = Math.max(0, this.clock.getSeconds() - this.lastTriggerTime)
     if(t < this.decaySeconds) {
       return (this.base ** t - this.sink) * this.stretch
     } else {
@@ -82,7 +82,7 @@ export class LinearDecay extends Envelope {
   }
 
   getValue() {
-    const t = this.clock.getSeconds() - this.lastTriggerTime
+    const t = Math.max(0, this.clock.getSeconds() - this.lastTriggerTime)
     if(t < this.decaySeconds) {
       return 1 - t * this.slope
     } else {
